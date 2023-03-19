@@ -5,6 +5,7 @@ const ejs = require("ejs");
 const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
 const users = require("./users");
+const md5 = require("md5");
 
 const app = express();
 
@@ -47,8 +48,8 @@ app.post("/login", async (req, res) => {
             { email: req.body.username }
         );
         if (foundUser) {
-            //if user exists check password
-            if (req.body.password === foundUser.password) {
+            //if user exists check if hash of submitted password matches stored hash
+            if (md5(req.body.password) === foundUser.password) {
                 //password matches
                 res.redirect("/secrets");
             } else {
@@ -70,7 +71,7 @@ app.get("/register", (req, res) => {
 app.post("/register", async (req, res) => {
     const newUser = new users.User({
         email: req.body.username,
-        password: req.body.password
+        password: md5(req.body.password) //store the hash of the password
     })
     try {
         await newUser.save();

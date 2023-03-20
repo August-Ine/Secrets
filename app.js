@@ -77,13 +77,7 @@ passport.use(new GoogleStrategy({
     userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo"
 },
     async function (accessToken, refreshToken, profile, cb) {
-        console.log(profile);
-        // users.User.findOrCreate({ googleId: profile.id }, function (err, user) {
-        //     return cb(err, user);
-        // });
-        //diy
-
-        //find or create user --implemented bc findOrCreate plugin was throwing errors
+        //find or create user --try findOrCreate plugin 
         try {
             const theUser = await users.User.findOne({ googleId: profile.id });
             if (theUser) {
@@ -182,21 +176,53 @@ app.post("/register", async (req, res) => {
         if (err) {
             console.log(err);
             res.send(err);
+        } else {
+            //redirect user to login
+            res.redirect("/login");
         }
-        res.redirect("/secrets");
     });
 });
 
 
 //submit
 app.get("/submit", (req, res) => {
-    res.render("submit");
+    if (req.isAuthenticated()) {
+        res.render("submit");
+    } else {
+        res.redirect("/login");
+    }
 });
 
+app.post("/submit", async (req, res) => {
+    submittedSecret = req.body.secret;
+    //write secret to db
+    try {
+        const foundUser = await users.User.findById(req.user._id);
+        if (foundUser) {
+            foundUser.secret = submittedSecret;
+            await foundUser.save();
+            res.redirect("/secrets");
+        } else {
+            res.send("user not found!");
+        }
+    } catch (e) {
+        console.log(e);
+        res.send(e);
+    }
+})
+
 //secrets
-app.get("/secrets", (req, res) => {
+app.get("/secrets", async (req, res) => {
     if (req.isAuthenticated()) {
-        res.render("secrets");
+        try {
+            const foundUsers = await users.User.find({
+                "secret": { $ne: null }
+            });
+            res.render("secrets", { foundUsers: foundUsers });
+        } catch (e) {
+            console.log(e);
+            res.send(e);
+        }
     } else {
         console.log(req.isAuthenticated());
         res.redirect("/login");

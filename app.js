@@ -5,10 +5,62 @@ const ejs = require("ejs");
 const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
 const users = require("./users");
-const bcrypt = require('bcrypt');
-const saltRounds = 10;
+const session = require('express-session');
+const passport = require("passport");
+var LocalStrategy = require('passport-local');
 
 const app = express();
+
+app.use(require('cookie-parser')());
+
+//session
+var sess = {
+    secret: 'keyboard cat',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {}
+}
+
+app.set('trust proxy', 1); // trust first proxy
+sess.cookie.secure = false; // serve secure cookies NOTE: in dev environ if set to true will not authenticate user
+
+app.use(session(sess))
+
+//passport 
+app.use(passport.initialize());
+app.use(passport.session()); //use passport to manage sessions
+
+//create local authenticaion strategy for passport local
+passport.use(new LocalStrategy(
+    function (username, password, done) {
+        // users.User.findOne({ username: username }, function (err, user) {
+        //     if (err) { return done(err); }
+        //     if (!user) { return done(null, false); }
+        //     if (!user.verifyPassword(password)) { return done(null, false); }
+        //     return done(null, user);
+
+        //check password using passport local mongoose
+        const authenticate = users.User.authenticate();
+        authenticate(username, password, function (err, result) {
+            if (err) {
+                console.log(err);
+                res.send(err);
+            } else {
+                if (result) {
+                    console.log("correct password", result);
+                    return done(null, result);
+                } else {
+                    console.log("incorrect password", result);
+                    return done(null, false);
+                }
+            }
+        });
+    }
+));
+
+// use static serialize and deserialize of model for passport session support
+passport.serializeUser(users.User.serializeUser());
+passport.deserializeUser(users.User.deserializeUser());
 
 //use body-parser as middleware to handle http request
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -19,20 +71,26 @@ app.set('view engine', 'ejs');
 //serve public static files
 app.use(express.static("public"));
 
-//test db connection
-const URI = "mongodb://127.0.0.1:27017/"; // local mongoDB uri
-async function testDb() {
-    //connect to db, create db if doesnt exist
-    try {
-        await mongoose.connect(URI, { useNewUrlParser: true, useUnifiedTopology: true, dbName: users.dbName });
-        console.log("Connection to mongodb local host successful.");
-        //close connection after test
-        //mongoose.connection.close();
-    } catch (err) {
-        console.log(err);
-    }
-}
-testDb();
+//connect to db
+users.connectDb();
+
+//test passport local mongoose authentication
+// users.User.register({ username: 'username', active: true }, 'password', function (err, user) {
+//     if (err) {
+//         console.log(err);
+//     }
+
+//     const authenticate = users.User.authenticate();
+//     authenticate('username', 'password', function (err, result) {
+//         if (err) {
+//             console.log(err);
+//         } else {
+//             console.log(result);
+//         }
+
+//         // Value 'result' is set to false. The user could not be authenticated since the user is not active
+//     });
+// });
 
 //routes
 //root
@@ -45,36 +103,22 @@ app.get("/login", (req, res) => {
     res.render("login");
 });
 
-app.post("/login", async (req, res) => {
-    try {
-        const foundUser = await users.User.findOne(
-            { email: req.body.username }
-        );
-        if (foundUser) {
-            //if user exists check if hash of submitted password matches stored hash
-            bcrypt.compare(req.body.password, foundUser.password, (err, result) => {
-                if (!err) {
-                    if (result == true) {
-                        //password matches
-                        res.redirect("/secrets");
-                    } else {
-                        //wrong password
-                        console.log("Wrong password");
-                        res.send("Wrong password");
-                    }
-                } else {
-                    console.log(err);
-                    res.send(err);
-                }
-            });
+app.post('/login',
+    passport.authenticate('local', { successRedirect: '/secrets', failureRedirect: '/login' }),
+    function (req, res) {
+        res.redirect('/');
+    });
+
+//logout
+app.get("/logout", (req, res) => {
+    req.logout(function (err) {
+        if (err) {
+            console.log(err);
         } else {
-            console.log("user not found", req.body.username);
-            res.send("user not found");
+            res.redirect("/");
         }
-    } catch (e) {
-        console.log(e);
-    }
-});
+    });
+})
 
 //register
 app.get("/register", (req, res) => {
@@ -82,28 +126,16 @@ app.get("/register", (req, res) => {
 });
 
 app.post("/register", async (req, res) => {
-    //generate salted hash using bcrypt
-    bcrypt.hash(req.body.password, saltRounds, async (err, hash) => {
+    //use passport local mongoose to register user
+    users.User.register({ username: req.body.username, active: true }, req.body.password, function (err, user) {
         if (err) {
             console.log(err);
             res.send(err);
-        } else {
-            // create user document with password hash
-            const newUser = new users.User({
-                email: req.body.username,
-                password: hash //store the hash of the password
-            });
-            //save new user to db
-            try {
-                await newUser.save();
-                res.redirect("/secrets");
-            } catch (e) {
-                console.log(e);
-                res.send(e);
-            }
         }
+        res.redirect("/secrets");
     });
 });
+
 
 //submit
 app.get("/submit", (req, res) => {
@@ -112,9 +144,13 @@ app.get("/submit", (req, res) => {
 
 //secrets
 app.get("/secrets", (req, res) => {
-    res.render("secrets");
+    if (req.isAuthenticated()) {
+        res.render("secrets");
+    } else {
+        console.log(req.isAuthenticated());
+        res.redirect("/login");
+    }
 });
-
 
 app.listen(3000, function () {
     console.log("server listening on port 3000.")

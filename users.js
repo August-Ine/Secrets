@@ -3,7 +3,6 @@ require('dotenv').config(); //to access environ variables
 const mongoose = require("mongoose");
 const passportLocalMongoose = require("passport-local-mongoose");
 
-
 //constants
 const dbName = "usersdb";
 
@@ -11,6 +10,7 @@ const dbName = "usersdb";
 const userSchema = new mongoose.Schema({
     email: String,
     password: String,
+    googleId: String,
     active: Boolean
 });
 
